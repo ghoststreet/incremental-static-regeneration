@@ -1,0 +1,38 @@
+{
+  "name": "ghost-street/craft-incremental-static-regeneration",
+  "type": "craft-plugin",
+  "require": {
+    "php": ">=8.2",
+    "craftcms/cms": "^5.9.0"
+  },
+  "require-dev": {
+    "craftcms/ecs": "dev-main",
+    "craftcms/phpstan": "dev-main"
+  },
+  "autoload": {
+    "psr-4": {
+      "ghoststreet\\craftincrementalstaticregeneration\\": "src/"
+    }
+  },
+  "extra": {
+    "handle": "_incremental-static-regeneration",
+    "name": "Incremental Static Regeneration",
+    "developer": "Ghost Street",
+    "documentationUrl": ""
+  },
+  "scripts": {
+    "check-cs": "ecs check --ansi",
+    "fix-cs": "ecs check --ansi --fix",
+    "phpstan": "phpstan --memory-limit=1G"
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.2"
+    },
+    "allow-plugins": {
+      "yiisoft/yii2-composer": true,
+      "craftcms/plugin-installer": true
+    }
+  }
+}
