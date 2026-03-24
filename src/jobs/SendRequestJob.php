@@ -7,6 +7,8 @@ use craft\elements\Entry;
 use craft\queue\BaseJob;
 use craft\helpers\App;
 
+use ghoststreet\craftincrementalstaticregeneration\Plugin;
+
 class SendRequestJob extends BaseJob
 {
 
@@ -24,10 +26,23 @@ class SendRequestJob extends BaseJob
 
     public function execute($queue): void
     {
+        $urlToHit = $this->entry->url;
 
+        $settings = Plugin::getInstance()->getSettings();
+        $urlToReplace = $settings->getSiteToReplace();
+        $toReplaceWith = $settings->getTargetSite();
+
+        Craft::info($settings->getSiteToReplace(), 'incremental-static-regeneration');
+        Craft::info($settings->getTargetSite(), 'incremental-static-regeneration');
+        Craft::info($urlToHit, 'incremental-static-regeneration');
+
+        if ($urlToReplace && $toReplaceWith) {
+            $urlToHit = $this->xformURL($urlToHit, [$urlToReplace => $toReplaceWith]);
+            Craft::info($urlToHit, 'incremental-static-regeneration');
+        }
 
         // setup curl
-        $curlHandle = curl_init($this->entry->url);
+        $curlHandle = curl_init($urlToHit);
         curl_setopt($curlHandle, CURLOPT_HEADER, 0);
         curl_setopt($curlHandle, CURLOPT_TIMEOUT, 30);
         curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
@@ -63,5 +78,17 @@ class SendRequestJob extends BaseJob
         }
 
         return "busting ISR cache {$this->entry->id}";
+    }
+
+    /**
+     *
+     */
+    private function xformURL(string $url, array $replaceStrings): string
+    {
+        $newUrl = $url;
+        foreach($replaceStrings as $search => $replace) {
+            $newUrl = str_replace($search, $replace, $newUrl);
+        }
+        return $newUrl;
     }
 }

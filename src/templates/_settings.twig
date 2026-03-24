@@ -3,4 +3,31 @@
 
 {% import '_includes/forms.twig' as forms %}
 
-{# ... #}
+<h2>Settings</h2>
+
+{{
+  forms.autosuggestField({
+    label: 'Craft site URL to replace',
+    instruction: 'Insert the URL of the craft site to replace if not using headless mode',
+    id: 'siteToReplace',
+    name: 'siteToReplace',
+    value: settings.siteToReplace,
+    suggestEnvVars: true,
+    required: false,
+    errors: settings.getErrors('siteToReplace')
+  })
+}}
+
+
+{{
+  forms.autosuggestField({
+    label: 'Front End site URL',
+    instruction: 'Insert the URL of the front end site using ISR',
+    id: 'targetSite',
+    name: 'targetSite',
+    value: settings.targetSite,
+    suggestEnvVars: true,
+    required: false,
+    errors: settings.getErrors('targetSite')
+  })
+}}

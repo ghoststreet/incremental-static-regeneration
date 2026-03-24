@@ -39,9 +39,9 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
-        // if (App::env('CRAFT_ENVIRONMENT') !== 'dev') {
+        if (App::env('CRAFT_ENVIRONMENT') !== 'dev') {
             $this->attachEventHandlers();
-        // }
+        }
 
 
         // Any code that creates an element query or loads Twig should be deferred until
