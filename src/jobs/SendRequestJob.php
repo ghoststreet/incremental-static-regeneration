@@ -17,15 +17,11 @@ class SendRequestJob extends BaseJob
     {
         parent::__construct();
         $this->entry = Entry::find()->id($entryId)->siteId($siteId)->one();
-
-        Craft::error('test', 'incremental-static-regeneration');
     }
 
     public function execute($queue): void
     {
         $urlToHit = $this->entry->url;
-
-        Craft::error($urlToHit, 'incremental-static-regeneration');
 
         $settings = Plugin::getInstance()->getSettings();
         $urlToReplace = $settings->getSiteToReplace();
