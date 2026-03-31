@@ -11,22 +11,21 @@ use ghoststreet\craftincrementalstaticregeneration\Plugin;
 
 class SendRequestJob extends BaseJob
 {
-
     public Entry $entry;
-    public string $action;
 
     public function __construct(int $entryId)
     {
         parent::__construct();
         $this->entry = Entry::find()->id($entryId)->one();
-        if ($this->entry) {
-            $this->action = $this->entry->dateDeleted ? 'Entry Delete' : 'Entry Save';
-        }
+
+        Craft::error('test', 'incremental-static-regeneration');
     }
 
     public function execute($queue): void
     {
         $urlToHit = $this->entry->url;
+
+        Craft::error($urlToHit, 'incremental-static-regeneration');
 
         $settings = Plugin::getInstance()->getSettings();
         $urlToReplace = $settings->getSiteToReplace();
@@ -65,7 +64,7 @@ class SendRequestJob extends BaseJob
 
 
         if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-            Craft::error("Revalidation {$this->action} failed for entry ID: {$this->entry->id} URL:  {$this->entry->url} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+            Craft::error("Revalidation failed for entry ID: {$this->entry->id} URL:  {$this->entry->url} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
         } else {
             Craft::info("Successful Revalidation for entry ID {$this->entry->id} entry URL {$this->entry->url}", 'incremental-static-regeneration');
         }
