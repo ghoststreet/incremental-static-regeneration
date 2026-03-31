@@ -73,7 +73,7 @@ class Plugin extends BasePlugin
                 return;
             }
 
-            Queue::push(new SendRequestJob($entry->id));
+            Queue::push(new SendRequestJob($entry->id, $entry->siteId));
         });
 
         Event::on(Entry::class, Entry::EVENT_AFTER_DELETE, function (Event $event) {
@@ -83,7 +83,7 @@ class Plugin extends BasePlugin
                 return;
             }
 
-            Queue::push(new SendRequestJob($entry->id));
+            Queue::push(new SendRequestJob($entry->id, $entry->siteId));
         });
     }
 

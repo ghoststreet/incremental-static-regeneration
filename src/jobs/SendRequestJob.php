@@ -13,10 +13,10 @@ class SendRequestJob extends BaseJob
 {
     public Entry $entry;
 
-    public function __construct(int $entryId)
+    public function __construct(int $entryId, int $siteId)
     {
         parent::__construct();
-        $this->entry = Entry::find()->id($entryId)->one();
+        $this->entry = Entry::find()->id($entryId)->siteId($siteId)->one();
 
         Craft::error('test', 'incremental-static-regeneration');
     }
