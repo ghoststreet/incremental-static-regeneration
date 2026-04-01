@@ -12,14 +12,24 @@ use craft\helpers\App;
 class Settings extends Model
 {
 
+    public bool $isEnabled = false;
     public null|string $siteToReplace = null;
     public null|string $targetSite = null;
 
     public function defineRules(): array
     {
         return [
-            [['siteToReplace', 'targetSite'], 'string']
+            [['isEnabled'], 'boolean'],
+            [['siteToReplace', 'targetSite'], 'string'],
         ];
+    }
+
+    /**
+     * Get the isEanbled variable, resolving any environment variables
+     */
+    public function getIsEnabled(): bool
+    {
+        return App::parseEnv(!!$this->isEnabled);
     }
 
     /**

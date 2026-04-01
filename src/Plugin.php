@@ -39,7 +39,9 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
-        if (App::env('CRAFT_ENVIRONMENT') !== 'dev') {
+        $settings = Plugin::getInstance()->getSettings();
+
+        if ($settings->getIsEnabled()) {
             $this->attachEventHandlers();
         }
 
