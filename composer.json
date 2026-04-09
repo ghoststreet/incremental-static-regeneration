@@ -16,7 +16,7 @@
   },
   "extra": {
     "handle": "_incremental-static-regeneration",
-    "name": "Incremental Static Regeneration",
+    "name": "ISR Manager",
     "developer": "Ghost Street",
     "documentationUrl": ""
   },
