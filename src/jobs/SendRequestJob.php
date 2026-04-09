@@ -11,7 +11,7 @@ use ghoststreet\craftincrementalstaticregeneration\Plugin;
 
 class SendRequestJob extends BaseJob
 {
-    public Entry $entry;
+    public Entry|null $entry;
 
     public function __construct(int $entryId, int $siteId)
     {
@@ -21,6 +21,10 @@ class SendRequestJob extends BaseJob
 
     public function execute($queue): void
     {
+        if (!$this->entry) {
+            return;
+        }
+
         $urlToHit = $this->entry->url;
 
         $settings = Plugin::getInstance()->getSettings();
