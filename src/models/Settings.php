@@ -28,7 +28,7 @@ class Settings extends Model
      */
     public function getIsEnabled(): bool
     {
-        return !!App::parseEnv($this->isEnabled);
+        return App::parseBooleanEnv($this->isEnabled) ?? false;
     }
 
     /**

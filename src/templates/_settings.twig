@@ -6,22 +6,31 @@
 <h2>Settings</h2>
 
 <div class="field">
-
-  <div class="heading">
-    <label id="settings-isEnabled-label" for="isEnabled">
-      Plugin Enabled
-    </label>
+  {% if craft.app.config.general.allowAdminChanges %}
+    <div class="heading">
+      <label id="settings-isEnabled-label" for="isEnabled">
+        Plugin Enabled
+      </label>
+    </div>
+    {{
+      forms.booleanMenu({
+        id: 'isEnabled',
+        name: 'isEnabled',
+        value: settings.isEnabled,
+        includeEnvVars: true,
+        errors: settings.getErrors('isEnabled')
+      })
+    }}
   </div>
-  {{
-    forms.booleanMenu({
-      id: 'isEnabled',
-      name: 'isEnabled',
-      value: settings.isEnabled,
-      includeEnvVars: true,
-      errors: settings.getErrors('isEnabled')
-    })
-  }}
-</div>
+  {% else %}
+    <div class="heading">
+      {% if settings.getIsEnabled() %}
+        ✅ ISR cache busting enabled
+      {% else %}
+        ❌ ISR cache busting disabled
+      {% endif %}
+    </div>
+  {% endif %}
 
 {{
   forms.autosuggestField({
