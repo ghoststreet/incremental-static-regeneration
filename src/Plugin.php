@@ -39,11 +39,10 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
-        $settings = Plugin::getInstance()->getSettings();
-
         // Any code that creates an element query or loads Twig should be deferred until
         // after Craft is fully initialized, to avoid conflicts with other plugins/modules
         Craft::$app->onInit(function() {
+            $settings = Plugin::getInstance()->getSettings();
             if ($settings->getIsEnabled()) {
                 $this->attachEventHandlers();
             }
