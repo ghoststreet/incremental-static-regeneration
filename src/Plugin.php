@@ -39,15 +39,6 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
-        $updatesService = Craft::$app->getUpdates();
-
-        if (!$updatesService->isUpdatePending) {
-            $settings = Plugin::getInstance()->getSettings();
-            if ($settings->getIsEnabled()) {
-                $this->attachEventHandlers();
-            }
-        }
-
         // Any code that creates an element query or loads Twig should be deferred until
         // after Craft is fully initialized, to avoid conflicts with other plugins/modules
         Craft::$app->onInit($this->onInit());
@@ -55,7 +46,15 @@ class Plugin extends BasePlugin
 
     protected function onInit (): void
     {
+        $updatesService = Craft::$app->getUpdates();
 
+        if (!$updatesService->isUpdatePending) {
+            $settings = Plugin::getInstance()->getSettings();
+
+            if ($settings->getIsEnabled()) {
+                $this->attachEventHandlers();
+            }
+        }
     }
 
     protected function createSettingsModel(): ?Model
@@ -73,24 +72,34 @@ class Plugin extends BasePlugin
 
     private function attachEventHandlers(): void
     {
-        Event::on(Entry::class, Entry::EVENT_AFTER_SAVE, function (ModelEvent $event) {
+        Event::on(Entry::class, Entry::EVENT_AFTER_SAVE, static function (ModelEvent $event) {
             $entry = $event->sender;
+            $entryId = $entry->id;
+            $siteId = $entry->siteId;
 
             if (!self::entryShouldSendISRRequest($entry)) {
                 return;
             }
 
-            Queue::push(new SendRequestJob($entry->id, $entry->siteId));
+            Queue::push(new SendRequestJob([
+                "entryId" => $entryId,
+                "siteId" => $siteId
+            ]));
         });
 
-        Event::on(Entry::class, Entry::EVENT_AFTER_DELETE, function (Event $event) {
+        Event::on(Entry::class, Entry::EVENT_AFTER_DELETE, static function (Event $event) {
             $entry = $event->sender;
+            $entryId = $entry->id;
+            $siteId = $entry->siteId;
 
             if (!self::entryShouldSendISRRequest($entry)) {
                 return;
             }
 
-            Queue::push(new SendRequestJob($entry->id, $entry->siteId));
+            Queue::push(new SendRequestJob([
+                "entryId" => $entryId,
+                "siteId" => $siteId
+            ]));
         });
     }
 

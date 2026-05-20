@@ -11,12 +11,17 @@ use ghoststreet\craftincrementalstaticregeneration\Plugin;
 
 class SendRequestJob extends BaseJob
 {
-    public Entry|null $entry;
+    public ?int $entryId = null;
+    public ?int $siteId = null;
+    public Entry|null $entry = null;
 
-    public function __construct(int $entryId, int $siteId)
+    public function __construct()
     {
         parent::__construct();
-        $this->entry = Entry::find()->id($entryId)->siteId($siteId)->one();
+
+        if ($this->entryId && $this->siteId) {
+            $this->entry = Entry::find()->id($this->entryId)->siteId($this->siteId)->one();
+        }
     }
 
     public function execute($queue): void
@@ -76,7 +81,11 @@ class SendRequestJob extends BaseJob
             return "incremental-static-regeneration";
         }
 
-        return "busting ISR cache {$this->entry->id}";
+        if (!$this->entry->title) {
+            return "busting ISR cache {$this->entry->id}";
+        }
+
+        return "busting ISR cache {$this->entry->title}";
     }
 
     /**
