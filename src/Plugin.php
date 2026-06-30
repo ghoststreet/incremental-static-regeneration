@@ -74,6 +74,9 @@ class Plugin extends BasePlugin
             $entryId = $entry->id;
             $siteId = $entry->siteId;
 
+
+            Craft::error("{$entryId}. {$siteId}", 'incremental-static-regeneration');
+
             if (!self::entryShouldSendISRRequest($entry)) {
                 return;
             }
@@ -102,6 +105,7 @@ class Plugin extends BasePlugin
 
     private static function entryShouldSendISRRequest(Entry $entry):bool {
         return !$entry->getIsDraft()
-            && !$entry->getIsRevision();
+            && !$entry->getIsRevision()
+            && !$entry->propagating;
     }
 }

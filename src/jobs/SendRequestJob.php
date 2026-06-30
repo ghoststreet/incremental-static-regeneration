@@ -15,9 +15,9 @@ class SendRequestJob extends BaseJob
     public ?int $siteId = null;
     public Entry|null $entry = null;
 
-    public function __construct()
+    public function __construct($config = [])
     {
-        parent::__construct();
+        parent::__construct($config);
 
         if ($this->entryId && $this->siteId) {
             $this->entry = Entry::find()->id($this->entryId)->siteId($this->siteId)->one();
@@ -36,7 +36,6 @@ class SendRequestJob extends BaseJob
 
         if (!$urlToHit) {
             // redeploy app for entries without URL
-            Craft::error('redeploy', 'incremental-static-regeneration');
             $this->redeploy($settings->getDeployHook());
             return;
         }
@@ -64,10 +63,6 @@ class SendRequestJob extends BaseJob
 
         $this->setupCurlOptions($curlHandle, $curlOptions);
         curl_exec($curlHandle);
-
-        Craft::error('ISR invalidate', 'incremental-static-regeneration');
-        Craft::error($urlToHit, 'incremental-static-regeneration');
-        Craft::error(join('|||', $headers), 'incremental-static-regeneration');
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
