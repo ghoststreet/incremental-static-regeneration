@@ -30,7 +30,6 @@ class SendRequestJob extends BaseJob
 
     public function execute($queue): void
     {
-
         $targetEntry = $this->getRelatedEntry();
 
         if (!$targetEntry) {
@@ -124,8 +123,10 @@ class SendRequestJob extends BaseJob
         $this->result($httpCode, $curlError);
     }
 
-    private function result(int $httpCode, string $curlError, Entry $targetEntry): void
+    private function result(int $httpCode, string $curlError): void
     {
+        $targetEntry = $this->getRelatedEntry();
+
         if ($curlError || $httpCode < 200 || $httpCode >= 300) {
             Craft::error("Revalidation failed for entry ID: {$targetEntry->id} CP URL: {$targetEntry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
             return;
