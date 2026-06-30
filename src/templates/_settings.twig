@@ -58,3 +58,30 @@
     errors: settings.getErrors('targetSite')
   })
 }}
+
+{{
+  forms.autosuggestField({
+    label: 'ISR Bypass token',
+    instruction: 'ISR Bypass token setup in svelte',
+    id: 'isrBypassToken',
+    name: 'isrBypassToken',
+    value: settings.isrBypassToken,
+    suggestEnvVars: true,
+    required: false,
+    errors: settings.getErrors('isrBypassToken')
+  })
+}}
+
+
+{{
+  forms.autosuggestField({
+    label: 'Vercel Deploy Hook',
+    instruction: 'Insert the URL deploy hook in vercel',
+    id: 'deployHook',
+    name: 'deployHook',
+    value: settings.deployHook,
+    suggestEnvVars: true,
+    required: false,
+    errors: settings.getErrors('deployHook')
+  })
+}}
