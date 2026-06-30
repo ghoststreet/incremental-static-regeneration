@@ -30,49 +30,47 @@ class SendRequestJob extends BaseJob
             return;
         }
 
-        $urlToHit = $this->entry->url;
-
         $settings = Plugin::getInstance()->getSettings();
         $urlToReplace = $settings->getSiteToReplace();
         $toReplaceWith = $settings->getTargetSite();
 
-        Craft::info($settings->getSiteToReplace(), 'incremental-static-regeneration');
-        Craft::info($settings->getTargetSite(), 'incremental-static-regeneration');
-        Craft::info($urlToHit, 'incremental-static-regeneration');
+        $urlToHit = $this->entry->url;
 
-        if ($urlToReplace && $toReplaceWith) {
-            $urlToHit = $this->xformURL($urlToHit, [$urlToReplace => $toReplaceWith]);
-            Craft::info($urlToHit, 'incremental-static-regeneration');
+        if (!$urlToHit) {
+            // redeploy app for entries without URL
+            Craft::warning('redeploy', 'incremental-static-regeneration');
+            $this->redeploy($settings->getDeployHook());
+            return;
         }
+
+        // invalidate single URL otherwise
+        $urlToHit = $this->xformURL($urlToHit, [$urlToReplace => $toReplaceWith]);
 
         // setup curl
         $curlHandle = curl_init($urlToHit);
-        curl_setopt($curlHandle, CURLOPT_HEADER, 0);
-        curl_setopt($curlHandle, CURLOPT_TIMEOUT, 30);
-        curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
 
-        $isrBypassToken = App::env('ISR_BYPASS_TOKEN');
-        $headers = array("x-prerender-revalidate: {$isrBypassToken}");
+        $isrBypassToken = $settings->getIsrBypassToken();
+        $headers = ["x-prerender-revalidate: {$isrBypassToken}", "Cache-control: no-cache"];
 
-        if (!$this->entry->dateDeleted) {
-            array_push($headers, 'Cache-control: no-cache');
-        } else {
-            curl_setopt($curlHandle, CURLOPT_NOBODY, true);
-            curl_setopt($curlHandle, CURLOPT_CUSTOMREQUEST, 'HEAD');
-        }
+        $curlOptions = [
+            CURLOPT_HEADER          => 0,
+            CURLOPT_TIMEOUT         => 30,
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_CUSTOMREQUEST   => 'HEAD',
+            CURLOPT_NOBODY          => true,
+            CURLOPT_HTTPHEADER      => $headers
+        ];
 
-        curl_setopt($curlHandle, CURLOPT_HTTPHEADER, $headers);
+        $this->setupCurlOptions($curlHandle, $curlOptions);
         curl_exec($curlHandle);
+
+        Craft::warning('ISR invalidate', 'incremental-static-regeneration');
+        Craft::warning($urlToHit, 'incremental-static-regeneration');
+        Craft::warning(join('|||', $headers), 'incremental-static-regeneration');
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
-
-
-        if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-            Craft::error("Revalidation failed for entry ID: {$this->entry->id} URL:  {$this->entry->url} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
-        } else {
-            Craft::info("Successful Revalidation for entry ID {$this->entry->id} entry URL {$this->entry->url}", 'incremental-static-regeneration');
-        }
+        $this->result($httpCode, $curlError);
     }
 
     protected function defaultDescription(): string
@@ -95,8 +93,40 @@ class SendRequestJob extends BaseJob
     {
         $newUrl = $url;
         foreach($replaceStrings as $search => $replace) {
-            $newUrl = str_replace($search, $replace, $newUrl);
+            if ($search && $replace) {
+                $newUrl = str_replace($search, $replace, $newUrl);
+            }
         }
         return $newUrl;
+    }
+
+    private function setupCurlOptions(\CurlHandle $curlHandle, array $curlOptions): \CurlHandle
+    {
+        foreach($curlOptions as $key => $val) {
+            curl_setopt($curlHandle, $key, $val);
+        }
+
+        return $curlHandle;
+    }
+
+    private function redeploy(string $deployHook): void
+    {
+        $deployHook .= '?buildCache=false';
+        $curlHandle = curl_init($deployHook);
+        curl_setopt($curlHandle, CURLOPT_POST, 1);
+        curl_exec($curlHandle);
+
+        $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curlHandle);
+        $this->result($httpCode, $curlError);
+    }
+
+    private function result(int $httpCode, string $curlError): void
+    {
+        if ($curlError || $httpCode < 200 || $httpCode >= 300) {
+            Craft::error("Revalidation failed for entry ID: {$this->entry->id} CP URL: {$this->entry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+        } else {
+            Craft::info("Successful Revalidation for entry ID {$this->entry->id} entry URL {$this->entry->url}", 'incremental-static-regeneration');
+        }
     }
 }
