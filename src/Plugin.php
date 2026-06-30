@@ -101,8 +101,7 @@ class Plugin extends BasePlugin
     }
 
     private static function entryShouldSendISRRequest(Entry $entry):bool {
-        return $entry->url
-            && !$entry->getIsDraft()
+        return !$entry->getIsDraft()
             && !$entry->getIsRevision();
     }
 }
