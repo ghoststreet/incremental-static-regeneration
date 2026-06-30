@@ -31,17 +31,18 @@ class SendRequestJob extends BaseJob
         }
 
         $settings = Plugin::getInstance()->getSettings();
-        $urlToReplace = $settings->getSiteToReplace();
-        $toReplaceWith = $settings->getTargetSite();
 
         $urlToHit = $this->entry->url;
 
         if (!$urlToHit) {
             // redeploy app for entries without URL
-            Craft::warning('redeploy', 'incremental-static-regeneration');
+            Craft::error('redeploy', 'incremental-static-regeneration');
             $this->redeploy($settings->getDeployHook());
             return;
         }
+
+        $urlToReplace = $settings->getSiteToReplace();
+        $toReplaceWith = $settings->getTargetSite();
 
         // invalidate single URL otherwise
         $urlToHit = $this->xformURL($urlToHit, [$urlToReplace => $toReplaceWith]);
@@ -64,9 +65,9 @@ class SendRequestJob extends BaseJob
         $this->setupCurlOptions($curlHandle, $curlOptions);
         curl_exec($curlHandle);
 
-        Craft::warning('ISR invalidate', 'incremental-static-regeneration');
-        Craft::warning($urlToHit, 'incremental-static-regeneration');
-        Craft::warning(join('|||', $headers), 'incremental-static-regeneration');
+        Craft::error('ISR invalidate', 'incremental-static-regeneration');
+        Craft::error($urlToHit, 'incremental-static-regeneration');
+        Craft::error(join('|||', $headers), 'incremental-static-regeneration');
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
