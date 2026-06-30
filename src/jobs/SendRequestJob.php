@@ -13,26 +13,33 @@ class SendRequestJob extends BaseJob
 {
     public ?int $entryId = null;
     public ?int $siteId = null;
-    public Entry|null $entry = null;
 
     public function __construct($config = [])
     {
         parent::__construct($config);
+    }
 
+    private function getRelatedEntry(): Entry|null
+    {
         if ($this->entryId && $this->siteId) {
-            $this->entry = Entry::find()->id($this->entryId)->siteId($this->siteId)->one();
+            return Entry::find()->id($this->entryId)->siteId($this->siteId)->one();
         }
+
+        return null;
     }
 
     public function execute($queue): void
     {
-        if (!$this->entry) {
+
+        $targetEntry = $this->getRelatedEntry();
+
+        if (!$targetEntry) {
             return;
         }
 
         $settings = Plugin::getInstance()->getSettings();
 
-        $urlToHit = $this->entry->url;
+        $urlToHit = $targetEntry->url;
 
         if (!$urlToHit) {
             // redeploy app for entries without URL
@@ -61,25 +68,25 @@ class SendRequestJob extends BaseJob
             CURLOPT_HTTPHEADER      => $headers
         ];
 
-        $this->setupCurlOptions($curlHandle, $curlOptions);
+        $curlHandle = $this->setupCurlOptions($curlHandle, $curlOptions);
         curl_exec($curlHandle);
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
         $this->result($httpCode, $curlError);
+
+        return;
     }
 
     protected function defaultDescription(): string
     {
-        if (!$this->entry) {
-            return "incremental-static-regeneration";
+        $targetEntry = $this->getRelatedEntry();
+
+        if (!$targetEntry || !$targetEntry->title) {
+            return "busting ISR cache {$this->entryId}";
         }
 
-        if (!$this->entry->title) {
-            return "busting ISR cache {$this->entry->id}";
-        }
-
-        return "busting ISR cache {$this->entry->title}";
+        return "busting ISR cache {$targetEntry->title}";
     }
 
     /**
@@ -117,12 +124,14 @@ class SendRequestJob extends BaseJob
         $this->result($httpCode, $curlError);
     }
 
-    private function result(int $httpCode, string $curlError): void
+    private function result(int $httpCode, string $curlError, Entry $targetEntry): void
     {
         if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-            Craft::error("Revalidation failed for entry ID: {$this->entry->id} CP URL: {$this->entry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
-        } else {
-            Craft::info("Successful Revalidation for entry ID {$this->entry->id} entry URL {$this->entry->url}", 'incremental-static-regeneration');
+            Craft::error("Revalidation failed for entry ID: {$targetEntry->id} CP URL: {$targetEntry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+            return;
         }
+
+        Craft::info("Successful Revalidation for entry ID {$targetEntry->id} entry URL {$targetEntry->url}", 'incremental-static-regeneration');
+        return;
     }
 }
