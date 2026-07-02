@@ -11,6 +11,7 @@ use craft\elements\Entry;
 use craft\events\ModelEvent;
 use craft\helpers\App;
 use craft\helpers\Queue;
+use craft\models\Section;
 
 use yii\base\Event;
 use ghoststreet\craftincrementalstaticregeneration\jobs\SendRequestJob;
@@ -104,6 +105,12 @@ class Plugin extends BasePlugin
     }
 
     private static function entryShouldSendISRRequest(Entry $entry):bool {
+
+        // singles get to redeploy, other entries wihtout URL do nothing
+        if (!$entry->url) {
+            return $entry->section->type === Section::TYPE_SINGLE;
+        }
+
         return !$entry->getIsDraft()
             && !$entry->getIsRevision()
             && !$entry->propagating;
