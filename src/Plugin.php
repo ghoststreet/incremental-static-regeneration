@@ -108,7 +108,9 @@ class Plugin extends BasePlugin
 
         // singles get to redeploy, other entries wihtout URL do nothing
         if (!$entry->url) {
-            return $entry->section->type === Section::TYPE_SINGLE;
+            // nested entries (e.g. Matrix block entries) have no section, only classic sections do
+            $section = $entry->getSection();
+            return $section !== null && $section->type === Section::TYPE_SINGLE;
         }
 
         return !$entry->getIsDraft()
