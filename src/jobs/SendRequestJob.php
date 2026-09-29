@@ -13,6 +13,9 @@ class SendRequestJob extends BaseJob
 {
     public ?int $entryId = null;
     public ?int $siteId = null;
+    // set for deleted entries, which can no longer be queried when the job runs
+    public ?string $url = null;
+    public bool $deleted = false;
 
     public function __construct($config = [])
     {
@@ -30,15 +33,19 @@ class SendRequestJob extends BaseJob
 
     public function execute($queue): void
     {
-        $targetEntry = $this->getRelatedEntry();
+        if ($this->deleted) {
+            $urlToHit = $this->url;
+        } else {
+            $targetEntry = $this->getRelatedEntry();
 
-        if (!$targetEntry) {
-            return;
+            if (!$targetEntry) {
+                return;
+            }
+
+            $urlToHit = $targetEntry->url;
         }
 
         $settings = Plugin::getInstance()->getSettings();
-
-        $urlToHit = $targetEntry->url;
 
         if (!$urlToHit) {
             // redeploy app for entries without URL
@@ -72,7 +79,7 @@ class SendRequestJob extends BaseJob
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
-        $this->result($httpCode, $curlError);
+        $this->result($httpCode, $curlError, $urlToHit);
 
         return;
     }
@@ -111,8 +118,13 @@ class SendRequestJob extends BaseJob
         return $curlHandle;
     }
 
-    private function redeploy(string $deployHook): void
+    private function redeploy(?string $deployHook): void
     {
+        if (!$deployHook) {
+            Craft::warning("No deploy hook configured, skipping redeploy for entry ID: {$this->entryId}", 'incremental-static-regeneration');
+            return;
+        }
+
         $deployHook .= '?buildCache=false';
         $curlHandle = curl_init($deployHook);
         curl_setopt($curlHandle, CURLOPT_POST, 1);
@@ -120,19 +132,19 @@ class SendRequestJob extends BaseJob
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
-        $this->result($httpCode, $curlError);
+        $this->result($httpCode, $curlError, 'deploy hook');
     }
 
-    private function result(int $httpCode, string $curlError): void
+    private function result(int $httpCode, string $curlError, string $target): void
     {
-        $targetEntry = $this->getRelatedEntry();
-
         if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-            Craft::error("Revalidation failed for entry ID: {$targetEntry->id} CP URL: {$targetEntry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+            // entry is gone if it was deleted, so the CP URL is best-effort
+            $cpEditUrl = $this->getRelatedEntry()?->cpEditUrl;
+            Craft::error("Revalidation failed for entry ID: {$this->entryId} CP URL: {$cpEditUrl} Target: {$target} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
             return;
         }
 
-        Craft::info("Successful Revalidation for entry ID {$targetEntry->id} entry URL {$targetEntry->url}", 'incremental-static-regeneration');
+        Craft::info("Successful Revalidation for entry ID {$this->entryId} target {$target}", 'incremental-static-regeneration');
         return;
     }
 }

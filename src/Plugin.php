@@ -75,9 +75,6 @@ class Plugin extends BasePlugin
             $entryId = $entry->id;
             $siteId = $entry->siteId;
 
-
-            Craft::error("{$entryId}. {$siteId}", 'incremental-static-regeneration');
-
             if (!self::entryShouldSendISRRequest($entry)) {
                 return;
             }
@@ -97,9 +94,12 @@ class Plugin extends BasePlugin
                 return;
             }
 
+            // deleted entries can't be re-queried by the job, so capture the URL now
             Queue::push(new SendRequestJob([
                 "entryId" => $entryId,
-                "siteId" => $siteId
+                "siteId" => $siteId,
+                "url" => $entry->url,
+                "deleted" => true
             ]));
         });
     }
