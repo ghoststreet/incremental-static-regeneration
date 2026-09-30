@@ -5,24 +5,46 @@ namespace ghoststreet\craftincrementalstaticregeneration\jobs;
 use Craft;
 use craft\elements\Entry;
 use craft\queue\BaseJob;
-use craft\helpers\App;
+use yii\base\Exception;
+use yii\queue\RetryableJobInterface;
 
 use ghoststreet\craftincrementalstaticregeneration\Plugin;
 
-class SendRequestJob extends BaseJob
+class SendRequestJob extends BaseJob implements RetryableJobInterface
 {
+    private const MAX_ATTEMPTS = 3;
+    private const REQUEST_TIMEOUT = 30;
+
     public ?int $entryId = null;
     public ?int $siteId = null;
+    public ?string $sectionHandle = null;
+    // set for deleted entries, which can no longer be queried when the job runs
+    public ?string $url = null;
+    public bool $deleted = false;
+    // the entry's URL before this save, when it changed (e.g. a slug edit)
+    public ?string $previousUrl = null;
 
     public function __construct($config = [])
     {
         parent::__construct($config);
     }
 
+    public function getTtr(): int
+    {
+        // every target can take up to the request timeout
+        return self::REQUEST_TIMEOUT * 10;
+    }
+
+    public function canRetry($attempt, $error): bool
+    {
+        return $attempt < self::MAX_ATTEMPTS;
+    }
+
     private function getRelatedEntry(): Entry|null
     {
         if ($this->entryId && $this->siteId) {
-            return Entry::find()->id($this->entryId)->siteId($this->siteId)->one();
+            // include disabled entries so disabling one still busts its cached page
+            return Entry::find()->id($this->entryId)->siteId($this->siteId)->status(null)->one();
         }
 
         return null;
@@ -30,51 +52,58 @@ class SendRequestJob extends BaseJob
 
     public function execute($queue): void
     {
-        $targetEntry = $this->getRelatedEntry();
-
-        if (!$targetEntry) {
-            return;
-        }
-
         $settings = Plugin::getInstance()->getSettings();
 
-        $urlToHit = $targetEntry->url;
+        if ($this->deleted) {
+            $currentUrl = $this->url;
+            $isGone = true;
+        } else {
+            $targetEntry = $this->getRelatedEntry();
 
-        if (!$urlToHit) {
+            if (!$targetEntry) {
+                return;
+            }
+
+            $currentUrl = $targetEntry->url;
+            $isGone = $targetEntry->getStatus() !== Entry::STATUS_LIVE;
+        }
+
+        if (!$currentUrl) {
             // redeploy app for entries without URL
             $this->redeploy($settings->getDeployHook());
             return;
         }
 
-        $urlToReplace = $settings->getSiteToReplace();
-        $toReplaceWith = $settings->getTargetSite();
+        // map of URL => whether a 404 is expected (the page no longer exists)
+        $targets = [$currentUrl => $isGone];
 
-        // invalidate single URL otherwise
-        $urlToHit = $this->xformURL($urlToHit, [$urlToReplace => $toReplaceWith]);
+        if ($this->previousUrl) {
+            $targets[$this->previousUrl] = true;
+        }
 
-        // setup curl
-        $curlHandle = curl_init($urlToHit);
+        $siteBaseUrl = Craft::$app->getSites()->getSiteById($this->siteId)?->getBaseUrl();
 
-        $isrBypassToken = $settings->getIsrBypassToken();
-        $headers = ["x-prerender-revalidate: {$isrBypassToken}", "Cache-control: no-cache"];
+        if ($siteBaseUrl) {
+            foreach ($settings->getRevalidatePathsForSection($this->sectionHandle) as $path) {
+                $targets[rtrim($siteBaseUrl, '/') . '/' . ltrim($path, '/')] ??= false;
+            }
+        }
 
-        $curlOptions = [
-            CURLOPT_HEADER          => 0,
-            CURLOPT_TIMEOUT         => 30,
-            CURLOPT_RETURNTRANSFER  => true,
-            CURLOPT_CUSTOMREQUEST   => 'HEAD',
-            CURLOPT_NOBODY          => true,
-            CURLOPT_HTTPHEADER      => $headers
-        ];
+        $failures = [];
 
-        $curlHandle = $this->setupCurlOptions($curlHandle, $curlOptions);
-        curl_exec($curlHandle);
+        foreach ($targets as $target => $allowNotFound) {
+            $target = $this->xformURL($target, $settings->getSiteToReplace(), $settings->getTargetSite());
+            $failure = $this->revalidate($target, $settings->getIsrBypassToken(), $allowNotFound);
 
-        $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($curlHandle);
-        $this->result($httpCode, $curlError);
+            if ($failure) {
+                $failures[] = $failure;
+            }
+        }
 
-        return;
+        if ($failures) {
+            // throwing lets the queue retry the job instead of silently marking it done
+            throw new Exception('Revalidation failed: ' . implode('; ', $failures));
+        }
     }
 
     protected function defaultDescription(): string
@@ -89,50 +118,97 @@ class SendRequestJob extends BaseJob
     }
 
     /**
-     *
+     * Swap the Craft site origin for the front end origin, only when it prefixes the URL
      */
-    private function xformURL(string $url, array $replaceStrings): string
+    private function xformURL(string $url, ?string $search, ?string $replace): string
     {
-        $newUrl = $url;
-        foreach($replaceStrings as $search => $replace) {
-            if ($search && $replace) {
-                $newUrl = str_replace($search, $replace, $newUrl);
-            }
-        }
-        return $newUrl;
-    }
-
-    private function setupCurlOptions(\CurlHandle $curlHandle, array $curlOptions): \CurlHandle
-    {
-        foreach($curlOptions as $key => $val) {
-            curl_setopt($curlHandle, $key, $val);
+        if (!$search || !$replace) {
+            return $url;
         }
 
-        return $curlHandle;
+        $search = rtrim($search, '/');
+
+        if (!str_starts_with($url, $search)) {
+            return $url;
+        }
+
+        // make sure we matched a whole origin, not e.g. "example.com" inside "example.com.au"
+        $rest = substr($url, strlen($search));
+        if ($rest !== '' && !in_array($rest[0], ['/', '?', '#'], true)) {
+            return $url;
+        }
+
+        return rtrim($replace, '/') . $rest;
     }
 
-    private function redeploy(string $deployHook): void
+    /**
+     * @return string|null a description of the failure, or null on success
+     */
+    private function revalidate(string $url, ?string $isrBypassToken, bool $allowNotFound): ?string
     {
-        $deployHook .= '?buildCache=false';
-        $curlHandle = curl_init($deployHook);
-        curl_setopt($curlHandle, CURLOPT_POST, 1);
+        $curlHandle = curl_init($url);
+
+        $headers = ["x-prerender-revalidate: {$isrBypassToken}", "Cache-control: no-cache"];
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_HEADER          => 0,
+            CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_CUSTOMREQUEST   => 'HEAD',
+            CURLOPT_NOBODY          => true,
+            CURLOPT_HTTPHEADER      => $headers
+        ]);
         curl_exec($curlHandle);
 
         $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curlHandle);
-        $this->result($httpCode, $curlError);
+
+        if (!$curlError && $allowNotFound && $httpCode === 404) {
+            Craft::info("Revalidated removed page for entry ID {$this->entryId} target {$url}", 'incremental-static-regeneration');
+            return null;
+        }
+
+        return $this->result($httpCode, $curlError, $url);
     }
 
-    private function result(int $httpCode, string $curlError): void
+    private function redeploy(?string $deployHook): void
     {
-        $targetEntry = $this->getRelatedEntry();
-
-        if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-            Craft::error("Revalidation failed for entry ID: {$targetEntry->id} CP URL: {$targetEntry->cpEditUrl} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+        if (!$deployHook) {
+            Craft::warning("No deploy hook configured, skipping redeploy for entry ID: {$this->entryId}", 'incremental-static-regeneration');
             return;
         }
 
-        Craft::info("Successful Revalidation for entry ID {$targetEntry->id} entry URL {$targetEntry->url}", 'incremental-static-regeneration');
-        return;
+        $deployHook .= '?buildCache=false';
+        $curlHandle = curl_init($deployHook);
+        curl_setopt_array($curlHandle, [
+            CURLOPT_POST            => 1,
+            CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
+            CURLOPT_RETURNTRANSFER  => true,
+        ]);
+        curl_exec($curlHandle);
+
+        $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curlHandle);
+        $failure = $this->result($httpCode, $curlError, 'deploy hook');
+
+        if ($failure) {
+            throw new Exception("Redeploy failed: {$failure}");
+        }
+    }
+
+    /**
+     * @return string|null a description of the failure, or null on success
+     */
+    private function result(int $httpCode, string $curlError, string $target): ?string
+    {
+        if ($curlError || $httpCode < 200 || $httpCode >= 300) {
+            // entry is gone if it was deleted, so the CP URL is best-effort
+            $cpEditUrl = $this->getRelatedEntry()?->cpEditUrl;
+            Craft::error("Revalidation failed for entry ID: {$this->entryId} CP URL: {$cpEditUrl} Target: {$target} HTTP: {$httpCode} Error: {$curlError}", 'incremental-static-regeneration');
+            return "{$target} (HTTP {$httpCode}" . ($curlError ? ", {$curlError}" : '') . ')';
+        }
+
+        Craft::info("Successful Revalidation for entry ID {$this->entryId} target {$target}", 'incremental-static-regeneration');
+        return null;
     }
 }

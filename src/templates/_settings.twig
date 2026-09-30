@@ -85,3 +85,16 @@
     errors: settings.getErrors('deployHook')
   })
 }}
+
+{{
+  forms.textareaField({
+    label: 'Extra paths to revalidate',
+    instruction: 'Listing pages to revalidate when an entry in a section changes, one section per line as `sectionHandle: /path, /other-path`. Use `*` to match every section.',
+    id: 'revalidatePaths',
+    name: 'revalidatePaths',
+    value: settings.revalidatePaths,
+    rows: 4,
+    placeholder: "blog: /blog, /\n*: /sitemap.xml",
+    errors: settings.getErrors('revalidatePaths')
+  })
+}}
