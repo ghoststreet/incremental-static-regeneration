@@ -69,8 +69,8 @@ class SendRequestJob extends BaseJob implements RetryableJobInterface
         }
 
         if (!$currentUrl) {
-            // redeploy app for entries without URL
-            $this->redeploy($settings->getDeployHook());
+            // redeploy app for entries without URL (debounced, so a burst of saves is one deploy)
+            RedeployJob::schedule();
             return;
         }
 
@@ -169,31 +169,6 @@ class SendRequestJob extends BaseJob implements RetryableJobInterface
         }
 
         return $this->result($httpCode, $curlError, $url);
-    }
-
-    private function redeploy(?string $deployHook): void
-    {
-        if (!$deployHook) {
-            Craft::warning("No deploy hook configured, skipping redeploy for entry ID: {$this->entryId}", 'incremental-static-regeneration');
-            return;
-        }
-
-        $deployHook .= '?buildCache=false';
-        $curlHandle = curl_init($deployHook);
-        curl_setopt_array($curlHandle, [
-            CURLOPT_POST            => 1,
-            CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
-            CURLOPT_RETURNTRANSFER  => true,
-        ]);
-        curl_exec($curlHandle);
-
-        $httpCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($curlHandle);
-        $failure = $this->result($httpCode, $curlError, 'deploy hook');
-
-        if ($failure) {
-            throw new Exception("Redeploy failed: {$failure}");
-        }
     }
 
     /**
