@@ -4,11 +4,13 @@ namespace ghoststreet\craftincrementalstaticregeneration\jobs;
 
 use Craft;
 use craft\elements\Entry;
+use craft\models\Section;
 use craft\queue\BaseJob;
 use yii\base\Exception;
 use yii\queue\RetryableJobInterface;
 
 use ghoststreet\craftincrementalstaticregeneration\Plugin;
+use ghoststreet\craftincrementalstaticregeneration\models\Settings;
 
 class SendRequestJob extends BaseJob implements RetryableJobInterface
 {
@@ -68,30 +70,20 @@ class SendRequestJob extends BaseJob implements RetryableJobInterface
             $isGone = $targetEntry->getStatus() !== Entry::STATUS_LIVE;
         }
 
-        if (!$currentUrl) {
-            // redeploy app for entries without URL (debounced, so a burst of saves is one deploy)
+        $section = $this->sectionHandle ? Craft::$app->getEntries()->getSectionByHandle($this->sectionHandle) : null;
+        $siteBaseUrl = $this->siteId ? Craft::$app->getSites()->getSiteById($this->siteId)?->getBaseUrl() : null;
+
+        $plan = $this->buildTargets($settings, $currentUrl, $isGone, $section, $siteBaseUrl);
+
+        if ($plan['redeploy']) {
+            // redeploy app for singles without URL (debounced, so a burst of saves is one deploy)
             RedeployJob::schedule();
             return;
         }
 
-        // map of URL => whether a 404 is expected (the page no longer exists)
-        $targets = [$currentUrl => $isGone];
-
-        if ($this->previousUrl) {
-            $targets[$this->previousUrl] = true;
-        }
-
-        $siteBaseUrl = Craft::$app->getSites()->getSiteById($this->siteId)?->getBaseUrl();
-
-        if ($siteBaseUrl) {
-            foreach ($settings->getRevalidatePathsForSection($this->sectionHandle) as $path) {
-                $targets[rtrim($siteBaseUrl, '/') . '/' . ltrim($path, '/')] ??= false;
-            }
-        }
-
         $failures = [];
 
-        foreach ($targets as $target => $allowNotFound) {
+        foreach ($plan['targets'] as $target => $allowNotFound) {
             $target = $this->xformURL($target, $settings->getSiteToReplace(), $settings->getTargetSite());
             $failure = $this->revalidate($target, $settings->getIsrBypassToken(), $allowNotFound);
 
@@ -104,6 +96,46 @@ class SendRequestJob extends BaseJob implements RetryableJobInterface
             // throwing lets the queue retry the job instead of silently marking it done
             throw new Exception('Revalidation failed: ' . implode('; ', $failures));
         }
+    }
+
+    /**
+     * Work out what the job has to do, without making any requests.
+     *
+     * - Singles without URL redeploy the front end instead of revalidating anything.
+     * - Entries with a URL revalidate it (and their previous URL), plus the paths configured for their section.
+     * - Other entries without URL, and entries in a routeless section, only revalidate the configured paths.
+     *
+     * @param string|null $currentUrl the entry's URL, null when it has none
+     * @param bool $isGone whether the entry's page no longer exists (deleted, disabled or expired)
+     * @param Section|null $section the entry's section, null for nested entries
+     * @param string|null $siteBaseUrl base URL of the entry's site, which the configured paths are relative to
+     * @return array{redeploy: bool, targets: array<string, bool>} targets maps each URL to whether a 404 is expected
+     */
+    public function buildTargets(Settings $settings, ?string $currentUrl, bool $isGone, ?Section $section, ?string $siteBaseUrl): array
+    {
+        // routeless sections have URLs in Craft but no page on the front end, so their own URLs would 404
+        $isRouteless = $settings->isRoutelessSection($this->sectionHandle);
+        $targets = [];
+
+        if (!$isRouteless) {
+            if ($currentUrl) {
+                $targets[$currentUrl] = $isGone;
+
+                if ($this->previousUrl) {
+                    $targets[$this->previousUrl] = true;
+                }
+            } elseif ($section?->type === Section::TYPE_SINGLE) {
+                return ['redeploy' => true, 'targets' => []];
+            }
+        }
+
+        if ($siteBaseUrl) {
+            foreach ($settings->getRevalidatePathsForSection($this->sectionHandle) as $path) {
+                $targets[rtrim($siteBaseUrl, '/') . '/' . ltrim($path, '/')] ??= false;
+            }
+        }
+
+        return ['redeploy' => false, 'targets' => $targets];
     }
 
     protected function defaultDescription(): string

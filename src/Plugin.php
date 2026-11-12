@@ -77,6 +77,8 @@ class Plugin extends BasePlugin
 
     private function attachEventHandlers(): void
     {
+        $settings = $this->getSettings();
+
         // capture the URL before it changes (e.g. a slug edit) so the old path can be revalidated too
         Event::on(Entry::class, Entry::EVENT_BEFORE_SAVE, static function (ModelEvent $event) {
             $entry = $event->sender;
@@ -89,14 +91,14 @@ class Plugin extends BasePlugin
             self::$previousUrls[self::previousUrlKey($entry)] = $savedEntry?->url;
         });
 
-        Event::on(Entry::class, Entry::EVENT_AFTER_SAVE, static function (ModelEvent $event) {
+        Event::on(Entry::class, Entry::EVENT_AFTER_SAVE, static function (ModelEvent $event) use ($settings) {
             $entry = $event->sender;
 
             $key = self::previousUrlKey($entry);
             $previousUrl = self::$previousUrls[$key] ?? null;
             unset(self::$previousUrls[$key]);
 
-            if (!self::entryShouldSendISRRequest($entry)) {
+            if (!self::entryShouldSendISRRequest($entry, $settings)) {
                 return;
             }
 
@@ -108,10 +110,10 @@ class Plugin extends BasePlugin
             ]));
         });
 
-        Event::on(Entry::class, Entry::EVENT_AFTER_DELETE, static function (Event $event) {
+        Event::on(Entry::class, Entry::EVENT_AFTER_DELETE, static function (Event $event) use ($settings) {
             $entry = $event->sender;
 
-            if (!self::entryShouldSendISRRequest($entry)) {
+            if (!self::entryShouldSendISRRequest($entry, $settings)) {
                 return;
             }
 
@@ -126,21 +128,29 @@ class Plugin extends BasePlugin
         });
     }
 
-    private static function entryShouldSendISRRequest(Entry $entry): bool
+    private static function entryShouldSendISRRequest(Entry $entry, Settings $settings): bool
     {
         // drafts, revisions, propagation to other sites and bulk resaves must never revalidate or redeploy
         if (!self::isCanonicalSave($entry)) {
             return false;
         }
 
-        // singles get to redeploy, other entries without URL do nothing
-        if (!$entry->url) {
-            // nested entries (e.g. Matrix block entries) have no section, only classic sections do
-            $section = $entry->getSection();
-            return $section !== null && $section->type === Section::TYPE_SINGLE;
+        // nested entries (e.g. Matrix block entries) have no section, only classic sections do
+        $section = $entry->getSection();
+        $isRouteless = $settings->isRoutelessSection($section?->handle);
+
+        // entries with a page of their own revalidate it
+        if ($entry->url && !$isRouteless) {
+            return true;
         }
 
-        return true;
+        // singles without URL get to redeploy
+        if (!$entry->url && !$isRouteless && $section?->type === Section::TYPE_SINGLE) {
+            return true;
+        }
+
+        // any other entry only revalidates the pages configured for its section, so with none there is nothing to do
+        return $section !== null && $settings->getRevalidatePathsForSection($section->handle) !== [];
     }
 
     private static function isCanonicalSave(Entry $entry): bool

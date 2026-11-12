@@ -89,12 +89,25 @@
 {{
   forms.textareaField({
     label: 'Extra paths to revalidate',
-    instruction: 'Listing pages to revalidate when an entry in a section changes, one section per line as `sectionHandle: /path, /other-path`. Use `*` to match every section.',
+    instruction: 'Listing pages to revalidate when an entry in a section changes, one section per line as `sectionHandle: /path, /other-path`. Paths are relative to the base URL of the entry site. Use `*` to match every section. Entries without a URL (other than Singles) and entries in routeless sections revalidate only these paths, and nothing at all when their section has none.',
     id: 'revalidatePaths',
     name: 'revalidatePaths',
     value: settings.revalidatePaths,
     rows: 4,
     placeholder: "blog: /blog, /\n*: /sitemap.xml",
     errors: settings.getErrors('revalidatePaths')
+  })
+}}
+
+{{
+  forms.textareaField({
+    label: 'Routeless sections',
+    instruction: 'Handles of sections whose entries have a URL in Craft but no page on the front end, separated by commas or new lines. Their own URLs are never revalidated (they would 404) and they never redeploy, only the extra paths configured above are revalidated.',
+    id: 'routelessSections',
+    name: 'routelessSections',
+    value: settings.routelessSections,
+    rows: 2,
+    placeholder: "offices, teamMembers",
+    errors: settings.getErrors('routelessSections')
   })
 }}
