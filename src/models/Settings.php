@@ -18,11 +18,12 @@ class Settings extends Model
     public null|string $isrBypassToken = null;
     public null|string $deployHook = null;
     public null|string $revalidatePaths = null;
+    public null|string $routelessSections = null;
 
     public function defineRules(): array
     {
         return [
-            [['isEnabled', 'siteToReplace', 'targetSite', 'isrBypassToken', 'deployHook', 'revalidatePaths'], 'string'],
+            [['isEnabled', 'siteToReplace', 'targetSite', 'isrBypassToken', 'deployHook', 'revalidatePaths', 'routelessSections'], 'string'],
         ];
     }
 
@@ -99,5 +100,28 @@ class Settings extends Model
         }
 
         return array_values(array_unique($paths));
+    }
+
+    /**
+     * Get the handles of sections whose entries have a URL in Craft but no page on the front end.
+     *
+     * The setting is a comma or newline separated list of section handles. Entries in these
+     * sections never revalidate their own URL, only the paths configured for their section.
+     *
+     * @return string[]
+     */
+    public function getRoutelessSections(): array
+    {
+        $handles = preg_split('/[\s,]+/', (string) $this->routelessSections, -1, PREG_SPLIT_NO_EMPTY);
+
+        return array_values(array_unique($handles));
+    }
+
+    /**
+     * Whether entries in the given section have no page of their own on the front end.
+     */
+    public function isRoutelessSection(?string $sectionHandle): bool
+    {
+        return $sectionHandle !== null && in_array($sectionHandle, $this->getRoutelessSections(), true);
     }
 }
